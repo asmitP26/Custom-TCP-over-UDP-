@@ -1,0 +1,3 @@
+Hello this is a test file for KTP protocol.
+We are sending this file using our reliable transport protocol.
+This file will be transferred in blocks of 512 bytes.

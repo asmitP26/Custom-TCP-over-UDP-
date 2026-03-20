@@ -1,0 +1,5 @@
+initksocket: initksocket.c libksocket.a
+	gcc initksocket.c -L. -lksocket -o initksocket -lpthread
+
+clean:
+	rm -f initksocket
