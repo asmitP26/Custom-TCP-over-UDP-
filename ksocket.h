@@ -10,83 +10,84 @@
 #include <sys/shm.h>
 #include <time.h>
 
-#define SOCK_KTP 5
+#define SOCK_KTP    5
 #define MAX_SOCKETS 10
 #define BUFFER_SIZE 10
 #define MESSAGE_SIZE 512
-#define ENOTBOUND 1001
-#define ENOSPACE  1002
-#define ENOMESSAGE  1003
+
+#define ENOTBOUND  1001
+#define ENOSPACE   1002
+#define ENOMESSAGE 1003
 
 #define T 5
-#define P 0.1
+#define P 0.40
 
-// for type part of KTP_Message
 #define DATA 1
-#define ACK 2
+#define ACK  2
 
-// message structure for KTP protocol
+// Socket lifecycle states (stored in KTP_Socket.state) 
+#define SOCK_STATE_FREE    0
+#define SOCK_STATE_CLAIMED 1
+#define SOCK_STATE_BOUND   2   // k_bind done, waiting for initksocket to create UDP socket and move to ready
+#define SOCK_STATE_READY   3   // UDP socket live; normal operation 
+
+long k_get_total_transmissions(void);  // in ksocket.h
+
 typedef struct {
-    int type;
-    int seq_no;
-    int rwnd;
+    int  type;
+    int  seq_no;
+    int  rwnd;
+    int  len; 
     char data[MESSAGE_SIZE];
 } KTP_Message;
 
-// sender window structure
 typedef struct {
-    int size;
-    int seq_numbers[BUFFER_SIZE];
-    int next_seq_no;
-    time_t send_time[BUFFER_SIZE];
+    int    size;               // current window size = receiver free space
+    int    seq_numbers[BUFFER_SIZE];
+    int    next_seq_no;        // next seq# to assign to a new message 
+    time_t send_time[BUFFER_SIZE];  // 0 = not yet transmitted 
 } Sendwindow;
 
-// receiver window structure
 typedef struct {
-    int size;
-    int seq_numbers[BUFFER_SIZE];
+    int size;                  // free slots remaining in recv buffer
 } Recvwindow;
 
-//KTP socket entry as described in the project pdf
 typedef struct {
+    int state;                 // SOCK_STATE_
+    int pid;
+    int udp_socket;            // fd valid ONLY in initksocket process
 
-    int is_free;      // status 1 for free , 0 for occupied
-    int pid;          // process id 
+    struct sockaddr_in src_addr;
+    struct sockaddr_in dest_addr;
 
-    int udp_socket;   // udp socket file descriptor
+    // Send side 
+    char send_buffer[BUFFER_SIZE][MESSAGE_SIZE]; // it store the outgoing messages until they are ACKed
+    int  send_buffer_len[BUFFER_SIZE];  // track message lengths in send buffer
+    Sendwindow swnd;
 
-    struct sockaddr_in src_addr;  // source address
-    struct sockaddr_in dest_addr; // destination address
+    // Receive side
+    char recv_buffer[BUFFER_SIZE][MESSAGE_SIZE]; // store incoming message 
+    int  recv_buffer_len[BUFFER_SIZE];   //receive message size
+    int  recv_seq[BUFFER_SIZE];    // seq# of each stored recv message
+    Recvwindow rwnd;
 
-    char send_buffer[BUFFER_SIZE][MESSAGE_SIZE]; //messages waiting to be transmitted
-    char recv_buffer[BUFFER_SIZE][MESSAGE_SIZE]; //messages received but not yet read by application
+    int  recv_next_app;    // next seq# k_recvfrom should return to appl.
+    int  recv_last_ack;    // last cumulative seq# ACKed to sender
 
-    Sendwindow swnd;   // sending window   
-    Recvwindow rwnd;   // receiving window 
-
-    int nospace;       // flag to indicate receiver buffer is full or not 
-
+    int  nospace;          // 1 = recv buffer was full when last checked
 } KTP_Socket;
 
 typedef struct {
     KTP_Socket sockets[MAX_SOCKETS];
-} sharedmemory ;
+    long total_transmissions; 
+} sharedmemory;
 
-int k_socket(int domain, int type, int protocol); // it give sockfd
-
-int k_bind(int sockfd,
-           char *src_ip,
-           int src_port,
-           char *dest_ip,
-           int dest_port);
-
+// API 
+int k_socket(int domain, int type, int protocol);
+int k_bind(int sockfd, char *src_ip, int src_port, char *dest_ip, int dest_port);
 int k_sendto(int sockfd, char *msg, int len);
-
 int k_recvfrom(int sockfd, char *buffer);
-
 int k_close(int sockfd);
-
 int dropmessage(float p);
-
 
 #endif
